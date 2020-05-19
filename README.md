@@ -1,0 +1,1 @@
+NLog.Targets.ActiveMQ
