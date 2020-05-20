@@ -2,12 +2,29 @@
 
   <PropertyGroup>
     <TargetFrameworks>netstandard2.1;netstandard2.0</TargetFrameworks>
+    <Version>1.0.1</Version>
+    <Authors>Yurii Sydorets</Authors>
+    <Company />
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <Description>An NLog target that utilises the ActiveMQ connection.</Description>
+    <PackageLicenseExpression></PackageLicenseExpression>
+    <PackageProjectUrl></PackageProjectUrl>
+    <RepositoryUrl>https://github.com/YuraSidorets/NLog.Targets.ActiveMQ</RepositoryUrl>
+    <PackageTags>nlog target activemq netstandard</PackageTags>
+    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Apache.NMS.ActiveMQ.NetStd" Version="1.7.3" />
     <PackageReference Include="Apache.NMS.NetStd" Version="1.7.1.3899" />
     <PackageReference Include="NLog" Version="4.7.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE.md">
+      <Pack>True</Pack>
+      <PackagePath></PackagePath>
+    </None>
   </ItemGroup>
 
 </Project>
