@@ -1,10 +1,10 @@
-﻿using System;
-using System.ComponentModel;
-using Apache.NMS;
-using Apache.NMS.ActiveMQ;
+﻿using Apache.NMS.ActiveMQ;
 using Apache.NMS.Util;
+using Apache.NMS;
 using NLog.Config;
 using NLog.Layouts;
+using System.ComponentModel;
+using System;
 
 namespace NLog.Targets.ActiveMQ
 {
@@ -13,6 +13,10 @@ namespace NLog.Targets.ActiveMQ
     {
         private readonly string _activeMqConnectionString = "tcp://localhost:61616";
         private readonly string _activeMqDestination = "queue://nlog.messages";
+
+        private IConnection _connection;
+        private ISession _session;
+        private IMessageProducer _producer;
 
         public ActiveMqTarget()
         {
@@ -31,8 +35,10 @@ namespace NLog.Targets.ActiveMQ
         public string Password { get; set; }
         public string ClientId { get; set; }
 
-        protected override void Write(LogEventInfo logEvent)
+        protected override void InitializeTarget()
         {
+            base.InitializeTarget();
+
             var factory = new ConnectionFactory(new Uri(Uri));
             if (!string.IsNullOrEmpty(Username))
             {
@@ -42,22 +48,30 @@ namespace NLog.Targets.ActiveMQ
             if (!string.IsNullOrEmpty(ClientId))
                 factory.ClientId = ClientId;
 
-            using (var connection = factory.CreateConnection())
-            using (var session = connection.CreateSession())
-            {
-                var destination = SessionUtil.GetDestination(session, Destination.Render(logEvent));
-                using (var producer = session.CreateProducer(destination))
-                {
-                    connection.Start();
-                    producer.DeliveryMode = Persistent
-                            ? MsgDeliveryMode.Persistent
-                            : MsgDeliveryMode.NonPersistent;
+            _connection = factory.CreateConnection();
+            _session = _connection.CreateSession();
 
-                    var logMessage = Layout.Render(logEvent);
-                    var request = session.CreateTextMessage(logMessage);
-                    producer.Send(request);
-                }
-            }
+            var destination = SessionUtil.GetDestination(_session, Destination.Render(new LogEventInfo()));
+            _producer = _session.CreateProducer(destination);
+
+            _connection.Start();
+            _producer.DeliveryMode = Persistent ? MsgDeliveryMode.Persistent : MsgDeliveryMode.NonPersistent;
+        }
+
+        protected override void CloseTarget()
+        {
+            base.CloseTarget();
+
+            _producer?.Dispose();
+            _session?.Dispose();
+            _connection?.Dispose();
+        }
+
+        protected override void Write(LogEventInfo logEvent)
+        {
+            var logMessage = Layout.Render(logEvent);
+            var request = _session.CreateTextMessage(logMessage);
+            _producer.Send(request);
         }
     }
 }
