@@ -44,11 +44,13 @@ public class ActiveMqTargetIntegrationTest : IClassFixture<ActiveMqFixture>
         }
 
         // Assert 
-        var factory = new ConnectionFactory(target.Uri);
+        var uri = target.Uri?.Render(LogEventInfo.CreateNullEvent());
+        var factory = new ConnectionFactory(uri);
         using (var connection = factory.CreateConnection())
         using (var session = connection.CreateSession())
         {
-            var destination = SessionUtil.GetDestination(session, target.Destination.Render(new LogEventInfo()));
+            var destinationName = target.Destination?.Render(LogEventInfo.CreateNullEvent());
+            var destination = SessionUtil.GetDestination(session, destinationName);
             using (var consumer = session.CreateConsumer(destination))
             {
                 connection.Start();

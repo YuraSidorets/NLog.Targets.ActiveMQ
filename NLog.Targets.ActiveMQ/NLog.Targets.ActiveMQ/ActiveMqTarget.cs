@@ -1,18 +1,18 @@
-﻿using Apache.NMS.ActiveMQ;
+﻿using System;
+using Apache.NMS.ActiveMQ;
 using Apache.NMS.Util;
 using Apache.NMS;
+using NLog.Common;
 using NLog.Config;
 using NLog.Layouts;
-using System.ComponentModel;
-using System;
 
 namespace NLog.Targets.ActiveMQ
 {
     [Target("ActiveMQ")]
     public class ActiveMqTarget : TargetWithLayout
     {
-        private readonly string _activeMqConnectionString = "tcp://localhost:61616";
-        private readonly string _activeMqDestination = "queue://nlog.messages";
+        private const string _activeMqConnectionString = "tcp://localhost:61616";
+        private const string _activeMqDestination = "queue://nlog.messages";
 
         private IConnection _connection;
         private ISession _session;
@@ -25,37 +25,72 @@ namespace NLog.Targets.ActiveMQ
             Persistent = true;
         }
 
+        /// <summary>
+        /// Example: queue://FOO.BAR
+        /// Example: topic://FOO.BAR
+        /// </summary>
         [RequiredParameter]
         public Layout Destination { get; set; }
+        /// <summary>
+        /// Example: tcp://localhost:61616
+        /// </summary>
         [RequiredParameter]
-        public string Uri { get; set; }
-        [DefaultValue(true)]
+        public Layout Uri { get; set; }
         public bool Persistent { get; set; }
-        public string Username { get; set; }
-        public string Password { get; set; }
-        public string ClientId { get; set; }
+        public bool UseCompression { get; set; }
+        public Layout Username { get; set; }
+        public Layout Password { get; set; }
+        public Layout ClientId { get; set; }
 
         protected override void InitializeTarget()
         {
-            base.InitializeTarget();
+            var uri = RenderLogEvent(Uri, LogEventInfo.CreateNullEvent());
+            var username = RenderLogEvent(Username, LogEventInfo.CreateNullEvent());
+            var password = RenderLogEvent(Password, LogEventInfo.CreateNullEvent());
+            var clientId = RenderLogEvent(ClientId, LogEventInfo.CreateNullEvent());
+            var destinationName = RenderLogEvent(Destination, LogEventInfo.CreateNullEvent());
 
-            var factory = new ConnectionFactory(new Uri(Uri));
-            if (!string.IsNullOrEmpty(Username))
+            InternalLogger.Info("ActiveMQ(Name={0}): Creating connection to Uri={1} and Destination={2}", Name, uri, destinationName);
+
+            try
             {
-                factory.UserName = Username;
-                factory.Password = Password;
+                var factory = new ConnectionFactory(new Uri(uri));
+                if (!string.IsNullOrEmpty(username))
+                {
+                    factory.UserName = username;
+                    factory.Password = password;
+                }
+                
+                if (!string.IsNullOrEmpty(clientId))
+                    factory.ClientId = clientId;
+
+                if (UseCompression)
+                    factory.UseCompression = true;
+
+                factory.OnException -= MonitorFactoryExceptions;    // Avoid double subscriptions
+                factory.OnException += MonitorFactoryExceptions;
+
+                _connection = factory.CreateConnection();
+                _connection.Start();
+
+                _session = _connection.CreateSession();
+
+                var destination = SessionUtil.GetDestination(_session, destinationName);
+                _producer = _session.CreateProducer(destination);
+                _producer.DeliveryMode = Persistent ? MsgDeliveryMode.Persistent : MsgDeliveryMode.NonPersistent;
             }
-            if (!string.IsNullOrEmpty(ClientId))
-                factory.ClientId = ClientId;
+            catch (Exception ex)
+            {
+                InternalLogger.Error(ex, "ActiveMQ(Name={0}): Failed to create ActiveMQ connection to Uri={1} and Destination={2}", Name, uri, destinationName);
+                throw;
+            }
 
-            _connection = factory.CreateConnection();
-            _session = _connection.CreateSession();
+            base.InitializeTarget();
+        }
 
-            var destination = SessionUtil.GetDestination(_session, Destination.Render(new LogEventInfo()));
-            _producer = _session.CreateProducer(destination);
-
-            _connection.Start();
-            _producer.DeliveryMode = Persistent ? MsgDeliveryMode.Persistent : MsgDeliveryMode.NonPersistent;
+        private static void MonitorFactoryExceptions(Exception ex)
+        {
+            InternalLogger.Error(ex, "ActiveMQ: Exception from ActiveMQ connection");
         }
 
         protected override void CloseTarget()
@@ -69,7 +104,7 @@ namespace NLog.Targets.ActiveMQ
 
         protected override void Write(LogEventInfo logEvent)
         {
-            var logMessage = Layout.Render(logEvent);
+            var logMessage = RenderLogEvent(Layout, logEvent);
             var request = _session.CreateTextMessage(logMessage);
             _producer.Send(request);
         }

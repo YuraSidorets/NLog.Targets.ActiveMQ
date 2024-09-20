@@ -1,8 +1,8 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.1;netstandard2.0</TargetFrameworks>
-    <Version>1.0.1</Version>
+    <TargetFrameworks>netstandard2.0</TargetFrameworks>
+    <Version>2.1.0</Version>
     <Authors>Yurii Sydorets</Authors>
     <Company />
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -10,13 +10,12 @@
     <PackageLicenseExpression></PackageLicenseExpression>
     <PackageProjectUrl></PackageProjectUrl>
     <RepositoryUrl>https://github.com/YuraSidorets/NLog.Targets.ActiveMQ</RepositoryUrl>
-    <PackageTags>nlog target activemq netstandard</PackageTags>
+    <PackageTags>nlog target activemq</PackageTags>
     <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Apache.NMS" Version="1.8.1" />
-    <PackageReference Include="Apache.NMS.ActiveMQ.NetStd" Version="1.8.0" />
+    <PackageReference Include="Apache.NMS.ActiveMQ" Version="2.1.0" />
     <PackageReference Include="NLog" Version="5.2.2" />
   </ItemGroup>
 
