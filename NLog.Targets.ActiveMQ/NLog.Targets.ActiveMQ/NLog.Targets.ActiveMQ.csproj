@@ -1,8 +1,8 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0</TargetFrameworks>
-    <Version>2.1.1</Version>
+    <Version>2.1.2</Version>
     <Authors>Yurii Sydorets</Authors>
     <Company />
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -18,7 +18,16 @@
   <ItemGroup>
     <PackageReference Include="Apache.NMS.ActiveMQ" Version="2.1.1" />
     <PackageReference Include="NLog" Version="5.2.2" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
   </ItemGroup>
+	
+  <!-- Sourcelink settings -->
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
 
   <ItemGroup>
     <None Include="..\..\LICENSE.md">
