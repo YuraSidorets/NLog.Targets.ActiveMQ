@@ -1,0 +1,48 @@
+name: Publish NuGet Package
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  publish:
+    name: Pack & Publish
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: NLog.Targets.ActiveMQ
+
+    env:
+      DOTNET_VERSION: '9.0.x'
+      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Pack NuGet
+        run: |
+          dotnet pack ./NLog.Targets.ActiveMQ/NLog.Targets.ActiveMQ.csproj \
+            --configuration Release \
+            --no-build \
+            --output ./artifacts
+      
+      - name: Push to NuGet
+        run: |
+          dotnet nuget push ./artifacts/*.nupkg \
+            --api-key $NUGET_API_KEY \
+            --source https://api.nuget.org/v3/index.json
