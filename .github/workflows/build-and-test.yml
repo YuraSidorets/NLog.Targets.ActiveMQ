@@ -5,33 +5,39 @@ on:
   pull_request:
   push:
     branches:
-      - main
+      - master
+
+permissions:
+  contents: read
 
 jobs:
   build-and-test:
     name: Build & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: NLog.Targets.ActiveMQ
 
     env:
-      DOTNET_VERSION: '9.0.x'
-    
+      DOTNET_VERSION: '10.0.x'
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v3
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Restore dependencies
-        run: dotnet restore 
+        run: dotnet restore
 
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test --configuration Release --no-restore --verbosity normal
+        run: dotnet test --configuration Release --no-build --verbosity normal

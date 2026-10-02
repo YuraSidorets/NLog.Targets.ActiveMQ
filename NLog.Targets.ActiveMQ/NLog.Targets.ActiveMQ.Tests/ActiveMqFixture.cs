@@ -2,25 +2,15 @@
 
 namespace NLog.Targets.ActiveMQ.Tests;
 
-public class ActiveMqFixture : IAsyncDisposable
+public sealed class ActiveMqFixture : IAsyncLifetime
 {
-    public readonly AsyncLazy<DotNet.Testcontainers.Containers.IContainer> ActiveMqContainer = new(async () =>
-    {
-        var container = new ContainerBuilder()
-          .WithImage("rmohr/activemq:latest")
-          .WithPortBinding(61616, 61616)
-          .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(61616))
-          .Build();
-        await container.StartAsync();
-        return container;
-    });
+    public DotNet.Testcontainers.Containers.IContainer ActiveMqContainer { get; } =
+        new ContainerBuilder("apache/activemq:6.2.6")
+            .WithPortBinding(61616, true)
+            .WithWaitStrategy(Wait.ForUnixContainer().UntilInternalTcpPortIsAvailable(61616))
+            .Build();
 
-    public ActiveMqFixture()
-    {
-    }
+    public Task InitializeAsync() => ActiveMqContainer.StartAsync();
 
-    public async ValueTask DisposeAsync()
-    {
-        await (await ActiveMqContainer).DisposeAsync().ConfigureAwait(false);
-    }
+    public Task DisposeAsync() => ActiveMqContainer.DisposeAsync().AsTask();
 }
