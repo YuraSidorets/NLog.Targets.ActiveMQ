@@ -8,55 +8,99 @@ namespace NLog.Targets.ActiveMQ.Tests;
 
 public class ActiveMqTargetTests
 {
-    [Theory]
-    [InlineData("create-connection")]
-    [InlineData("start-connection")]
-    [InlineData("create-session")]
-    [InlineData("get-queue")]
-    [InlineData("create-producer")]
-    [InlineData("set-delivery-mode")]
-    public void InitializeTarget_CleansUpPartialResources_AndPreservesOriginalFailure(string failurePoint)
+    [Fact]
+    public void InitializeTarget_CreateConnectionFails_PreservesOriginalFailure()
     {
-        var failure = new InvalidOperationException($"{failurePoint} failed");
-        var connection = new Mock<IConnection>();
-        var session = new Mock<ISession>();
-        var producer = new Mock<IMessageProducer>();
-        var queue = new Mock<IQueue>().Object;
-        connection.Setup(candidate => candidate.CreateSession()).Returns(session.Object);
-        if (failurePoint == "start-connection")
-            connection.Setup(candidate => candidate.Start()).Throws(failure);
-        if (failurePoint == "create-session")
-            connection.Setup(candidate => candidate.CreateSession()).Throws(failure);
-
-        session.Setup(candidate => candidate.GetQueue("nlog.messages")).Returns(queue);
-        if (failurePoint == "get-queue")
-            session.Setup(candidate => candidate.GetQueue("nlog.messages")).Throws(failure);
-
-        session.Setup(candidate => candidate.CreateProducer(It.IsAny<IDestination>())).Returns(producer.Object);
-        if (failurePoint == "create-producer")
-            session.Setup(candidate => candidate.CreateProducer(It.IsAny<IDestination>())).Throws(failure);
-        if (failurePoint == "set-delivery-mode")
-            producer.SetupSet(candidate => candidate.DeliveryMode = It.IsAny<MsgDeliveryMode>()).Throws(failure);
-
-        connection.Setup(candidate => candidate.Dispose()).Throws(new InvalidOperationException("connection cleanup failed"));
-        session.Setup(candidate => candidate.Dispose()).Throws(new InvalidOperationException("session cleanup failed"));
-        producer.Setup(candidate => candidate.Dispose()).Throws(new InvalidOperationException("producer cleanup failed"));
-
-        var target = new TestableActiveMqTarget(factory =>
-        {
-            if (failurePoint == "create-connection")
-                throw failure;
-            return connection.Object;
-        });
+        var failure = new InvalidOperationException("create-connection failed");
+        var resources = CreateResourcesWithFailingDisposal();
+        var target = new TestableActiveMqTarget(_ => throw failure);
 
         target.Invoking(candidate => candidate.InitializeForTest())
-            .Should().Throw<InvalidOperationException>()
-            .Which.Should().BeSameAs(failure);
+            .Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(failure);
 
-        connection.Verify(candidate => candidate.Dispose(), failurePoint == "create-connection" ? Times.Never() : Times.Once());
-        session.Verify(candidate => candidate.Dispose(),
-            failurePoint is "get-queue" or "create-producer" or "set-delivery-mode" ? Times.Once() : Times.Never());
-        producer.Verify(candidate => candidate.Dispose(), failurePoint == "set-delivery-mode" ? Times.Once() : Times.Never());
+        resources.Connection.Verify(candidate => candidate.Dispose(), Times.Never);
+        resources.Session.Verify(candidate => candidate.Dispose(), Times.Never);
+        resources.Producer.Verify(candidate => candidate.Dispose(), Times.Never);
+    }
+
+    [Fact]
+    public void InitializeTarget_StartFails_DisposesConnectionAndPreservesOriginalFailure()
+    {
+        var failure = new InvalidOperationException("start-connection failed");
+        var resources = CreateResourcesWithFailingDisposal();
+        resources.Connection.Setup(candidate => candidate.Start()).Throws(failure);
+        var target = new TestableActiveMqTarget(_ => resources.Connection.Object);
+
+        target.Invoking(candidate => candidate.InitializeForTest())
+            .Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(failure);
+
+        resources.Connection.Verify(candidate => candidate.Dispose(), Times.Once);
+        resources.Session.Verify(candidate => candidate.Dispose(), Times.Never);
+        resources.Producer.Verify(candidate => candidate.Dispose(), Times.Never);
+    }
+
+    [Fact]
+    public void InitializeTarget_CreateSessionFails_DisposesConnectionAndPreservesOriginalFailure()
+    {
+        var failure = new InvalidOperationException("create-session failed");
+        var resources = CreateResourcesWithFailingDisposal();
+        resources.Connection.Setup(candidate => candidate.CreateSession()).Throws(failure);
+        var target = new TestableActiveMqTarget(_ => resources.Connection.Object);
+
+        target.Invoking(candidate => candidate.InitializeForTest())
+            .Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(failure);
+
+        resources.Connection.Verify(candidate => candidate.Dispose(), Times.Once);
+        resources.Session.Verify(candidate => candidate.Dispose(), Times.Never);
+        resources.Producer.Verify(candidate => candidate.Dispose(), Times.Never);
+    }
+
+    [Fact]
+    public void InitializeTarget_GetQueueFails_DisposesSessionAndConnectionAndPreservesOriginalFailure()
+    {
+        var failure = new InvalidOperationException("get-queue failed");
+        var resources = CreateResourcesWithFailingDisposal();
+        resources.Session.Setup(candidate => candidate.GetQueue("nlog.messages")).Throws(failure);
+        var target = new TestableActiveMqTarget(_ => resources.Connection.Object);
+
+        target.Invoking(candidate => candidate.InitializeForTest())
+            .Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(failure);
+
+        resources.Producer.Verify(candidate => candidate.Dispose(), Times.Never);
+        resources.Session.Verify(candidate => candidate.Dispose(), Times.Once);
+        resources.Connection.Verify(candidate => candidate.Dispose(), Times.Once);
+    }
+
+    [Fact]
+    public void InitializeTarget_CreateProducerFails_DisposesSessionAndConnectionAndPreservesOriginalFailure()
+    {
+        var failure = new InvalidOperationException("create-producer failed");
+        var resources = CreateResourcesWithFailingDisposal();
+        resources.Session.Setup(candidate => candidate.CreateProducer(It.IsAny<IDestination>())).Throws(failure);
+        var target = new TestableActiveMqTarget(_ => resources.Connection.Object);
+
+        target.Invoking(candidate => candidate.InitializeForTest())
+            .Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(failure);
+
+        resources.Producer.Verify(candidate => candidate.Dispose(), Times.Never);
+        resources.Session.Verify(candidate => candidate.Dispose(), Times.Once);
+        resources.Connection.Verify(candidate => candidate.Dispose(), Times.Once);
+    }
+
+    [Fact]
+    public void InitializeTarget_SetDeliveryModeFails_DisposesAllResourcesAndPreservesOriginalFailure()
+    {
+        var failure = new InvalidOperationException("set-delivery-mode failed");
+        var resources = CreateResourcesWithFailingDisposal();
+        resources.Producer.SetupSet(candidate => candidate.DeliveryMode = It.IsAny<MsgDeliveryMode>()).Throws(failure);
+        var target = new TestableActiveMqTarget(_ => resources.Connection.Object);
+
+        target.Invoking(candidate => candidate.InitializeForTest())
+            .Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(failure);
+
+        resources.Producer.Verify(candidate => candidate.Dispose(), Times.Once);
+        resources.Session.Verify(candidate => candidate.Dispose(), Times.Once);
+        resources.Connection.Verify(candidate => candidate.Dispose(), Times.Once);
     }
 
     [Fact]
@@ -284,6 +328,20 @@ public class ActiveMqTargetTests
         configuration.AddRuleForAllLevels(target);
         logFactory.Configuration = configuration;
         return logFactory;
+    }
+
+    private static (Mock<IConnection> Connection, Mock<ISession> Session, Mock<IMessageProducer> Producer) CreateResourcesWithFailingDisposal()
+    {
+        var connection = new Mock<IConnection>();
+        var session = new Mock<ISession>();
+        var producer = new Mock<IMessageProducer>();
+        connection.Setup(candidate => candidate.CreateSession()).Returns(session.Object);
+        session.Setup(candidate => candidate.GetQueue("nlog.messages")).Returns(new Mock<IQueue>().Object);
+        session.Setup(candidate => candidate.CreateProducer(It.IsAny<IDestination>())).Returns(producer.Object);
+        connection.Setup(candidate => candidate.Dispose()).Throws(new InvalidOperationException("connection cleanup failed"));
+        session.Setup(candidate => candidate.Dispose()).Throws(new InvalidOperationException("session cleanup failed"));
+        producer.Setup(candidate => candidate.Dispose()).Throws(new InvalidOperationException("producer cleanup failed"));
+        return (connection, session, producer);
     }
 
     private sealed class TestableActiveMqTarget : ActiveMqTarget
