@@ -1,7 +1,7 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
-## [2.1.3] – Unreleased
+## [2.1.3] – 2026-10-03
 ### Fixed
 - Disposed partially initialized ActiveMQ resources and made shutdown cleanup fault-tolerant.
 - Synchronized direct target disposal with NLog's write/close lock.
@@ -16,7 +16,7 @@ All notable changes to this project will be documented in this file.
 - Replaced the custom lazy container helper with xUnit lifecycle management and random port allocation.
 - Expanded lifecycle, failure-path, configuration, and real-broker test coverage.
 - Added release tag/version validation and full tests before NuGet publishing.
-- Documented bounded asynchronous queuing and NMS failover configuration.
+- Corrected README typos and option descriptions.
 
 ## [2.1.2] – 2025-04-24
 ### Added
