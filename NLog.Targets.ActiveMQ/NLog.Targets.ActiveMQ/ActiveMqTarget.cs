@@ -13,13 +13,20 @@ namespace NLog.Targets.ActiveMQ
     {
         private const string _activeMqConnectionString = "tcp://localhost:61616";
         private const string _activeMqDestination = "queue://nlog.messages";
+        private static readonly object _factoryExceptionLock = new object();
 
-        private IConnection _connection;
-        private ISession _session;
-        private IMessageProducer _producer;
+        private IConnection? _connection;
+        private ISession? _session;
+        private IMessageProducer? _producer;
+        private readonly Func<ConnectionFactory, IConnection> _createConnection;
 
-        public ActiveMqTarget()
+        public ActiveMqTarget() : this(factory => factory.CreateConnection())
         {
+        }
+
+        internal ActiveMqTarget(Func<ConnectionFactory, IConnection> createConnection)
+        {
+            _createConnection = createConnection ?? throw new ArgumentNullException(nameof(createConnection));
             Destination = _activeMqDestination;
             Uri = _activeMqConnectionString;
             Persistent = true;
@@ -38,9 +45,9 @@ namespace NLog.Targets.ActiveMQ
         public Layout Uri { get; set; }
         public bool Persistent { get; set; }
         public bool UseCompression { get; set; }
-        public Layout Username { get; set; }
-        public Layout Password { get; set; }
-        public Layout ClientId { get; set; }
+        public Layout? Username { get; set; }
+        public Layout? Password { get; set; }
+        public Layout? ClientId { get; set; }
 
         protected override void InitializeTarget()
         {
@@ -50,7 +57,9 @@ namespace NLog.Targets.ActiveMQ
             var clientId = RenderLogEvent(ClientId, LogEventInfo.CreateNullEvent());
             var destinationName = RenderLogEvent(Destination, LogEventInfo.CreateNullEvent());
 
-            InternalLogger.Info("ActiveMQ(Name={0}): Creating connection to Uri={1} and Destination={2}", Name, uri, destinationName);
+            InternalLogger.Info("ActiveMQ(Name={0}): Creating connection and producer", Name);
+
+            base.InitializeTarget();
 
             try
             {
@@ -60,17 +69,21 @@ namespace NLog.Targets.ActiveMQ
                     factory.UserName = username;
                     factory.Password = password;
                 }
-                
+
                 if (!string.IsNullOrEmpty(clientId))
                     factory.ClientId = clientId;
 
                 if (UseCompression)
                     factory.UseCompression = true;
 
-                factory.OnException -= MonitorFactoryExceptions;    // Avoid double subscriptions
-                factory.OnException += MonitorFactoryExceptions;
+                // NMS exposes a process-wide static event through an instance accessor.
+                lock (_factoryExceptionLock)
+                {
+                    factory.OnException -= MonitorFactoryExceptions;
+                    factory.OnException += MonitorFactoryExceptions;
+                }
 
-                _connection = factory.CreateConnection();
+                _connection = _createConnection(factory);
                 _connection.Start();
 
                 _session = _connection.CreateSession();
@@ -81,11 +94,10 @@ namespace NLog.Targets.ActiveMQ
             }
             catch (Exception ex)
             {
-                InternalLogger.Error(ex, "ActiveMQ(Name={0}): Failed to create ActiveMQ connection to Uri={1} and Destination={2}", Name, uri, destinationName);
+                DisposeResources();
+                InternalLogger.Error(ex, "ActiveMQ(Name={0}): Failed to create connection and producer", Name);
                 throw;
             }
-
-            base.InitializeTarget();
         }
 
         private static void MonitorFactoryExceptions(Exception ex)
@@ -95,18 +107,60 @@ namespace NLog.Targets.ActiveMQ
 
         protected override void CloseTarget()
         {
-            base.CloseTarget();
+            try
+            {
+                base.CloseTarget();
+            }
+            finally
+            {
+                DisposeResources();
+            }
+        }
 
-            _producer?.Dispose();
-            _session?.Dispose();
-            _connection?.Dispose();
+        protected override void Dispose(bool disposing)
+        {
+            // NLog serializes normal writes and close; direct Dispose must use the same lock.
+            lock (SyncRoot)
+            {
+                base.Dispose(disposing);
+            }
+        }
+
+        private void DisposeResources()
+        {
+            var producer = _producer;
+            var session = _session;
+            var connection = _connection;
+
+            _producer = null;
+            _session = null;
+            _connection = null;
+
+            DisposeResource(producer, nameof(_producer));
+            DisposeResource(session, nameof(_session));
+            DisposeResource(connection, nameof(_connection));
+        }
+
+        private void DisposeResource(IDisposable? resource, string resourceName)
+        {
+            if (resource == null)
+                return;
+
+            try
+            {
+                resource.Dispose();
+            }
+            catch (Exception ex)
+            {
+                InternalLogger.Warn(ex, "ActiveMQ(Name={0}): Failed to dispose {1}", Name, resourceName);
+            }
         }
 
         protected override void Write(LogEventInfo logEvent)
         {
             var logMessage = RenderLogEvent(Layout, logEvent);
-            var request = _session.CreateTextMessage(logMessage);
-            _producer.Send(request);
+            var request = _session!.CreateTextMessage(logMessage);
+            _producer!.Send(request);
         }
     }
 }

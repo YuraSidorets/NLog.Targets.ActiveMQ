@@ -2,25 +2,29 @@
 
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0</TargetFrameworks>
-    <Version>2.1.2</Version>
+    <Version>2.1.3</Version>
+    <LangVersion>8.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Authors>Yurii Sydorets</Authors>
     <Company />
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <Description>An NLog target that utilises the ActiveMQ connection.</Description>
-    <PackageLicenseExpression></PackageLicenseExpression>
-    <PackageProjectUrl></PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/YuraSidorets/NLog.Targets.ActiveMQ</PackageProjectUrl>
     <RepositoryUrl>https://github.com/YuraSidorets/NLog.Targets.ActiveMQ</RepositoryUrl>
     <PackageTags>nlog target activemq</PackageTags>
-    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Apache.NMS.ActiveMQ" Version="2.1.1" />
+    <InternalsVisibleTo Include="NLog.Targets.ActiveMQ.Tests" />
+    <PackageReference Include="Apache.NMS.ActiveMQ" Version="2.2.0" />
     <PackageReference Include="NLog" Version="5.2.2" />
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.401" PrivateAssets="All" />
   </ItemGroup>
-	
+
   <!-- Sourcelink settings -->
   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>

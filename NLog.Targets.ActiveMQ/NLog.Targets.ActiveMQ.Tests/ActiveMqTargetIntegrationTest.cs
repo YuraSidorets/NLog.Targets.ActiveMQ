@@ -2,11 +2,11 @@ using Apache.NMS;
 using Apache.NMS.ActiveMQ;
 using Apache.NMS.Util;
 using FluentAssertions;
-using NLog.Common;
-using System.Reflection;
+using NLog.Config;
 
 namespace NLog.Targets.ActiveMQ.Tests;
 
+[Trait("Category", "Integration")]
 public class ActiveMqTargetIntegrationTest : IClassFixture<ActiveMqFixture>
 {
     private readonly ActiveMqFixture _activeMqFixture;
@@ -16,60 +16,46 @@ public class ActiveMqTargetIntegrationTest : IClassFixture<ActiveMqFixture>
         _activeMqFixture = activeMqFixture;
     }
 
-    [Fact]
-    public async Task Write_SendsMessageToActiveMq()
+    [Theory]
+    [InlineData("queue", true, false)]
+    [InlineData("queue", false, true)]
+    [InlineData("topic", true, true)]
+    [InlineData("topic", false, false)]
+    public void Write_SendsRenderedMessage(string destinationType, bool persistent, bool compression)
     {
-        // Arrange
-        var activeMqContainer = await _activeMqFixture.ActiveMqContainer;
+        var container = _activeMqFixture.ActiveMqContainer;
+        var uri = $"tcp://{container.Hostname}:{container.GetMappedPublicPort(61616)}";
+        var destinationName = $"{destinationType}://nlog.tests.{Guid.NewGuid():N}";
+        var message = new string('x', 4096);
+
+        var connectionFactory = new ConnectionFactory(uri);
+        using var connection = connectionFactory.CreateConnection();
+        using var session = connection.CreateSession();
+        var destination = SessionUtil.GetDestination(session, destinationName);
+        // Subscribe before publishing so topic messages cannot race the consumer.
+        using var consumer = session.CreateConsumer(destination);
+        connection.Start();
+
+        using var logFactory = new LogFactory { ThrowExceptions = true };
         var target = new ActiveMqTarget
         {
-            Uri = $"activemq:tcp://{activeMqContainer.Hostname}:{activeMqContainer.GetMappedPublicPort(61616)}",
-            Destination = "queue://nlog.messages",
-            Layout = "${message}"
+            Name = "broker",
+            Uri = uri,
+            Destination = destinationName,
+            Layout = "${level}|${message}",
+            Persistent = persistent,
+            UseCompression = compression
         };
+        var configuration = new LoggingConfiguration(logFactory);
+        configuration.AddRule(LogLevel.Info, LogLevel.Fatal, target);
+        logFactory.Configuration = configuration;
 
-        InitializeTarget(target);
+        logFactory.GetLogger("integration").Info(message);
 
-        var logEvent = new LogEventInfo(LogLevel.Info, "TestLogger", "Test Message");
-        var asyncLogEvent = new AsyncLogEventInfo(logEvent, e => { });
-
-        // Act
-        try
-        {
-            target.WriteAsyncLogEvent(asyncLogEvent);
-        }
-        finally
-        {
-            CloseTarget(target);
-        }
-
-        // Assert 
-        var uri = target.Uri?.Render(LogEventInfo.CreateNullEvent());
-        var factory = new ConnectionFactory(uri);
-        using (var connection = factory.CreateConnection())
-        using (var session = connection.CreateSession())
-        {
-            var destinationName = target.Destination?.Render(LogEventInfo.CreateNullEvent());
-            var destination = SessionUtil.GetDestination(session, destinationName);
-            using (var consumer = session.CreateConsumer(destination))
-            {
-                connection.Start();
-
-                await Task.Delay(1000);
-
-                var receivedMessage = consumer.Receive(new TimeSpan(0, 0, 5)) as ITextMessage;
-                receivedMessage.Should().NotBeNull();
-                logEvent.FormattedMessage.Should().Be(receivedMessage.Text);
-            }
-        }
-    }
-
-    private static void InitializeTarget(Target target) => target.GetType().GetMethod("Initialize", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(target, new object?[] { null });
-
-    private static void CloseTarget(Target target) => target.GetType().GetMethod("Close", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(target, Array.Empty<object>());
-
-    public ValueTask DisposeAsync()
-    {
-        return _activeMqFixture.DisposeAsync();
+        var receivedMessage = consumer.Receive(TimeSpan.FromSeconds(10))
+            .Should().BeAssignableTo<ITextMessage>().Subject;
+        receivedMessage.Text.Should().Be($"Info|{message}");
+        receivedMessage.NMSDeliveryMode.Should().Be(
+            persistent ? MsgDeliveryMode.Persistent : MsgDeliveryMode.NonPersistent);
     }
 }
