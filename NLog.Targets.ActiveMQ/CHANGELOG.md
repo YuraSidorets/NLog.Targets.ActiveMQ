@@ -1,7 +1,7 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
-## [2.1.3] – 2026-10-03
+## [2.1.3] – 2026-10-04
 ### Fixed
 - Disposed partially initialized ActiveMQ resources and made shutdown cleanup fault-tolerant.
 - Synchronized direct target disposal with NLog's write/close lock.

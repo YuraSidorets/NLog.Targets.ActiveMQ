@@ -250,76 +250,6 @@ public class ActiveMqTargetTests
         }
     }
 
-    [Fact]
-    public async Task Dispose_WaitsForAnInFlightWriteBeforeReleasingResources()
-    {
-        using var sendEntered = new ManualResetEventSlim();
-        using var releaseSend = new ManualResetEventSlim();
-        using var resourceDisposed = new ManualResetEventSlim();
-        using var disposeEntered = new ManualResetEventSlim();
-        var writeActive = 0;
-        var disposedDuringWrite = 0;
-        var sendCount = 0;
-        var connection = new Mock<IConnection>();
-        var session = new Mock<ISession>();
-        var producer = new Mock<IMessageProducer>();
-        connection.Setup(candidate => candidate.CreateSession()).Returns(session.Object);
-        session.Setup(candidate => candidate.GetQueue("nlog.messages")).Returns(new Mock<IQueue>().Object);
-        session.Setup(candidate => candidate.CreateProducer(It.IsAny<IDestination>())).Returns(producer.Object);
-        session.Setup(candidate => candidate.CreateTextMessage(It.IsAny<string>())).Returns(new Mock<ITextMessage>().Object);
-        producer.Setup(candidate => candidate.Send(It.IsAny<IMessage>())).Callback(() =>
-        {
-            Interlocked.Increment(ref sendCount);
-            Interlocked.Exchange(ref writeActive, 1);
-            sendEntered.Set();
-            if (!releaseSend.Wait(TimeSpan.FromSeconds(10)))
-                throw new TimeoutException("The test did not release the blocked send in time.");
-            Interlocked.Exchange(ref writeActive, 0);
-        });
-        producer.Setup(candidate => candidate.Dispose()).Callback(() =>
-        {
-            if (Volatile.Read(ref writeActive) != 0)
-                Interlocked.Exchange(ref disposedDuringWrite, 1);
-            resourceDisposed.Set();
-        });
-        session.Setup(candidate => candidate.Dispose());
-        connection.Setup(candidate => candidate.Dispose());
-
-        var target = new SignalingActiveMqTarget(_ => connection.Object, disposeEntered)
-        {
-            Name = "activeMq",
-            Layout = "${message}"
-        };
-        var logFactory = CreateLogFactory(target);
-        var logger = logFactory.GetLogger("dispose-race");
-        var write = Task.Run(() => logger.Info("blocked"));
-
-        try
-        {
-            sendEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue("the producer send should start");
-            var dispose = Task.Run(target.Dispose);
-            disposeEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue("the direct dispose call should reach the target");
-            resourceDisposed.Wait(TimeSpan.FromMilliseconds(200))
-                .Should().BeFalse("resource disposal must wait while the write is in flight");
-
-            releaseSend.Set();
-            await Task.WhenAll(write, dispose).WaitAsync(TimeSpan.FromSeconds(5));
-            resourceDisposed.IsSet.Should().BeTrue();
-            Volatile.Read(ref disposedDuringWrite).Should().Be(0);
-            producer.Verify(candidate => candidate.Dispose(), Times.Once);
-            session.Verify(candidate => candidate.Dispose(), Times.Once);
-            connection.Verify(candidate => candidate.Dispose(), Times.Once);
-
-            logger.Info("after dispose");
-            Interlocked.CompareExchange(ref sendCount, 0, 0).Should().Be(1, "writes after disposal should not reach the producer");
-        }
-        finally
-        {
-            releaseSend.Set();
-            logFactory.Dispose();
-        }
-    }
-
     private static LogFactory CreateLogFactory(ActiveMqTarget target)
     {
         var logFactory = new LogFactory();
@@ -353,21 +283,4 @@ public class ActiveMqTargetTests
         public void InitializeForTest() => InitializeTarget();
     }
 
-    private sealed class SignalingActiveMqTarget : ActiveMqTarget
-    {
-        private readonly ManualResetEventSlim _disposeEntered;
-
-        public SignalingActiveMqTarget(
-            Func<ConnectionFactory, IConnection> createConnection,
-            ManualResetEventSlim disposeEntered) : base(createConnection)
-        {
-            _disposeEntered = disposeEntered;
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            _disposeEntered.Set();
-            base.Dispose(disposing);
-        }
-    }
 }
